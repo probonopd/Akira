@@ -30,7 +30,6 @@ public enum Akira.Lib.Models.CanvasItemType {
 
 public interface Akira.Lib.Models.CanvasItem : Goo.CanvasItemSimple, Goo.CanvasItem {
     // Identifiers.
-    public static int global_id = 0;
     public abstract Models.CanvasItemType item_type { get; set; }
     public abstract string id { get; set; }
     public abstract string name { get; set; }
@@ -102,7 +101,21 @@ public interface Akira.Lib.Models.CanvasItem : Goo.CanvasItemSimple, Goo.CanvasI
         string[] type_slug_tokens = item.item_type.to_string ().split ("_");
         string type_slug = type_slug_tokens[type_slug_tokens.length - 1];
 
-        return "%s %d".printf (capitalize (type_slug.down ()), global_id++);
+        // Make sure the initial ID is the current count of the total amount
+        // of items with the same item type in the same artboard.
+        int count = 0;
+        var items = item.artboard != null ? item.artboard.items : item.canvas.window.items_manager.free_items;
+        if (item is Models.CanvasArtboard) {
+            items = item.canvas.window.items_manager.artboards;
+        }
+
+        foreach (var _item in items) {
+            if (_item.item_type == item.item_type) {
+                count++;
+            }
+        }
+
+        return "%s %d".printf (capitalize (type_slug.down ()), count);
     }
 
     public static string capitalize (string s) {
@@ -181,39 +194,6 @@ public interface Akira.Lib.Models.CanvasItem : Goo.CanvasItemSimple, Goo.CanvasI
             // Add item to the parent Artboard.
             artboard.add_child (this, -1);
 
-            // If the item is rotated we need to reset it to get the correct
-            // relative position based on the original matrix transform.
-            if (rotation != 0) {
-                Cairo.Matrix transform;
-                get_transform (out transform);
-
-                var center_x = get_coords ("width") / 2;
-                var center_y = get_coords ("height") / 2;
-
-                // Reset the rotation.
-                transform.translate (center_x, center_y);
-                transform.rotate (Utils.AffineTransform.deg_to_rad (-rotation));
-                transform.translate (-center_x, -center_y);
-
-                _x = transform.x0;
-                _y = transform.y0;
-            }
-
-            // Account for mirrored items.
-            if (flipped_h || flipped_v) {
-                var center_x = get_coords ("width") / 2;
-                var center_y = get_coords ("height") / 2;
-                var radians = Utils.AffineTransform.deg_to_rad (rotation);
-
-                var sx = flipped_v ? 1 : -1;
-                var sy = flipped_h ? 1 : -1;
-                transform.translate (center_x, center_y);
-                transform.rotate (-radians);
-                transform.scale (sx, sy);
-                transform.rotate (radians);
-                transform.translate (-center_x, -center_y);
-            }
-
             // Convert the coordinates for the artboard space.
             canvas.convert_to_item_space (artboard, ref _x, ref _y);
 
@@ -238,6 +218,7 @@ public interface Akira.Lib.Models.CanvasItem : Goo.CanvasItemSimple, Goo.CanvasI
         }
 
         translate (x, y);
+        bounds_manager.update ();
     }
 
     public virtual Cairo.Matrix get_real_transform () {
@@ -270,16 +251,14 @@ public interface Akira.Lib.Models.CanvasItem : Goo.CanvasItemSimple, Goo.CanvasI
 
         // Account for mirrored items.
         if (flipped_h || flipped_v) {
-            var sx = flipped_v ? 1 : -1;
-            var sy = flipped_h ? 1 : -1;
+            var sx = flipped_h ? -1 : 1;
+            var sy = flipped_v ? -1 : 1;
             transform.translate (center_x, center_y);
             transform.rotate (-radians);
             transform.scale (sx, sy);
             transform.rotate (radians);
             transform.translate (-center_x, -center_y);
         }
-
-        set_transform (transform);
 
         return transform;
     }
